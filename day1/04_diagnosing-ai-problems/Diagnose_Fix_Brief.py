@@ -99,19 +99,29 @@ for _d in [_pl.Path.cwd().resolve(), *_pl.Path.cwd().resolve().parents]:
                 os.environ.setdefault(_k, _v)
         break
 
-# ── Provider resolution — Anthropic API or Amazon Bedrock ──
-# Bedrock model IDs carry an `anthropic.` prefix; the Anthropic API uses the bare ID.
-PROVIDER = "anthropic" if os.environ.get("ANTHROPIC_API_KEY", "").startswith("sk-ant-") else (
-    "bedrock" if os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip() else None
-)
+# ── Provider resolution — Anthropic API, Amazon Bedrock, or a Databricks AI Gateway ──
+# Bedrock model IDs carry an `anthropic.` prefix; the Databricks AI Gateway carries a
+# `system.ai.` prefix; the Anthropic API uses the bare ID. BASECAMP_DATABRICKS_GATEWAY is
+# set by the notebook's setup cell when it routes through a Databricks gateway instead of
+# a real key — ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL are inherited from that same cell.
+if os.environ.get("BASECAMP_DATABRICKS_GATEWAY", "").strip() == "1":
+    PROVIDER = "databricks"
+elif os.environ.get("ANTHROPIC_API_KEY", "").startswith("sk-ant-"):
+    PROVIDER = "anthropic"
+elif os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip():
+    PROVIDER = "bedrock"
+else:
+    PROVIDER = None
 
 
 def _model(name):
     # Idempotent, so a value that arrived from --model can be resolved without
-    # risking a doubled `anthropic.anthropic.` prefix.
-    if PROVIDER != "bedrock":
-        return name
-    return name if name.startswith("anthropic.") else f"anthropic.{name}"
+    # risking a doubled prefix.
+    if PROVIDER == "bedrock":
+        return name if name.startswith("anthropic.") else f"anthropic.{name}"
+    if PROVIDER == "databricks":
+        return name if name.startswith("system.ai.") else f"system.ai.{name}"
+    return name
 
 
 def _make_client(timeout=60.0, max_retries=2):
